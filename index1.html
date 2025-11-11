@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orifice Flow Calculator – PWA</title>
+  <meta name="theme-color" content="#0b0f14" />
+  <link id="manifestLink" rel="manifest" href="#">
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#10161d; --muted:#6b7b8d;
+      --text:#e6eef6; --accent:#4cc2ff; --ok:#3ddc97; --danger:#ff6b6b;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
+      background:linear-gradient(180deg,#0b0f14 0%, #0e141b 100%);
+      color:var(--text)
+    }
+    header{padding:24px 16px; text-align:center}
+    h1{margin:0; font-size:22px}
+    .wrap{max-width:1000px; margin:0 auto; padding:0 16px 40px}
+    .card{
+      background:linear-gradient(180deg,#0f151d,#0f141b);
+      border:1px solid #1b2633; border-radius:14px; padding:16px;
+      box-shadow:0 6px 22px rgba(0,0,0,.25)
+    }
+    .card h2{margin:0 0 10px; font-size:18px}
+    label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+    input[type="number"], select{
+      width:100%; padding:10px 12px; background:#0b1016; color:var(--text);
+      border:1px solid #1d2733; border-radius:10px; outline:none
+    }
+    input[type="number"]:focus, select:focus{
+      border-color:#2c4056; box-shadow:0 0 0 1px #2c4056 inset
+    }
+    .info-icon{
+      display:inline-block; margin-left:6px; cursor:pointer; font-weight:bold;
+      color:var(--accent); user-select:none;
+    }
+    .tooltip{
+      position:absolute; background:#111922; color:var(--text);
+      border:1px solid #2a3a4d; border-radius:10px;
+      padding:10px 12px; font-size:13px; line-height:1.4;
+      max-width:260px; z-index:50; box-shadow:0 6px 18px rgba(0,0,0,.35);
+      display:none;
+    }
+    .tooltip::after{
+      content:""; position:absolute; bottom:-6px; left:20px;
+      border-width:6px; border-style:solid;
+      border-color:#111922 transparent transparent transparent;
+    }
+    .result{
+      font-size:20px; font-weight:800; margin-top:4px;
+      opacity:1; padding-left:4px;
+    }
+    .sub{font-size:13px; color:var(--muted)}
+    .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-weight:700}
+    .pill.ok{background:rgba(61,220,151,.14); color:var(--ok); border:1px solid rgba(61,220,151,.35)}
+    .pill.fail{background:rgba(255,107,107,.13); color:var(--danger); border:1px solid rgba(255,107,107,.35)}
+    .hr{height:1px; background:#17202b; margin:10px 0 14px}
+    .btn{
+      padding:10px 14px; border-radius:10px; border:1px solid #1d2733;
+      background:#0b1016; color:var(--text); cursor:pointer; font-weight:600
+    }
+    .btn:active{transform:translateY(1px)}
+    footer{opacity:.7; text-align:center; font-size:12px; margin-top:22px}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Orifice Flow Calculator – PWA</h1>
+    <div class="sub">Orifice flow to atmosphere</div>
+  </header>
+
+  <div class="wrap">
+    <section class="card">
+      <h2>Orifice Flow</h2>
+      <div>
+        <!-- Diameter -->
+        <label>Orifice diameter</label>
+        <input id="o_d" type="number" inputmode="decimal" value="25" min="0" step="0.1">
+
+        <!-- Diameter units + hint -->
+        <label style="margin-top:10px">Diameter units</label>
+        <select id="o_du">
+          <option value="mm" selected>mm</option>
+          <option value="inch">inch</option>
+        </select>
+        <div class="sub" id="o_d_hint" style="margin-top:6px; display:none">—</div>
+
+        <!-- Cd with tooltip -->
+        <label style="margin-top:10px">Discharge coefficient, Cd (0.62 sharp-edged)
+          <span class="info-icon" id="cdInfo">ℹ️</span>
+        </label>
+        <div id="tooltipCd" class="tooltip">
+          <strong>Typical Cd values:</strong><br>
+          • 0.62 → Sharp-edged orifice<br>
+          • 0.70–0.80 → Slightly rounded inlet<br>
+          • 0.90–0.98 → Well-rounded or nozzle type
+        </div>
+        <input id="o_cd" type="number" inputmode="decimal" value="0.62" min="0" max="2" step="0.01">
+
+        <!-- Pressure value ABOVE pressure units -->
+        <label style="margin-top:10px">Pressure value (residual pressure)</label>
+        <input id="o_p" type="number" inputmode="decimal" value="100" min="0" step="0.1">
+
+        <label style="margin-top:10px">Pressure units</label>
+        <select id="o_pu">
+          <option value="kPa" selected>kPa</option>
+          <option value="psi">psi</option>
+        </select>
+
+        <!-- Flow units -->
+        <label style="margin-top:10px">Flow units</label>
+        <select id="o_out">
+          <option value="Lmin" selected>L/min</option>
+          <option value="Ls">L/s</option>
+          <option value="gpm">gpm</option>
+        </select>
+
+        <!-- Required flow -->
+        <div class="hr"></div>
+        <label id="o_req_label">Enter required flow to calculate pass or fail (Optional) — in L/min</label>
+        <input id="o_req" type="number" inputmode="decimal" placeholder="e.g. 250 L/min">
+
+        <!-- Results (only selected unit is shown) -->
+        <div class="hr"></div>
+        <label>Results</label>
+        <div class="result" id="o_main_lmin" data-unit="Lmin">—</div>
+        <div class="result" id="o_main_ls"   data-unit="Ls">—</div>
+        <div class="result" id="o_main_gpm"  data-unit="gpm">—</div>
+
+        <div style="margin-top:8px"><span class="pill" id="o_pf">—</span></div>
+
+        <!-- Dynamic formula -->
+        <div class="hr"></div>
+        <div class="sub" id="o_formula">Formula: —</div>
+
+        <!-- Copy buttons -->
+        <div class="hr"></div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button id="copyBtn" class="btn">Copy summary</button>
+          <button id="copyDetailBtn" class="btn">Copy detailed results</button>
+          <span id="copyHint" class="sub" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+
+    <footer>Works offline after first load.</footer>
+  </div>
+
+<script>
+  const $ = sel => document.querySelector(sel);
+  const fmt = (v, d=2) => (isFinite(v)? Number(v).toFixed(d) : '—');
+
+  // --- constants base (for d in mm, P in kPa) ---
+  const C_BASE = {
+    Lmin: 0.0666432,
+    Ls:   0.00111072,
+    gpm:  0.017605270919714557
+  };
+  const SQRT_KPA_PER_PSI = Math.sqrt(6.894757);
+  const MM_PER_INCH = 25.4;
+
+  let lastCalc = null; // snapshot for copy functions
+
+  function toKPa(val, unit){
+    val = Number(val)||0;
+    if(unit==='kPa') return val;
+    if(unit==='psi') return val*6.894757;
+    return val;
+  }
+
+  function currentFlowLabel(){
+    const out = $('#o_out').value;
+    return out==='Ls' ? 'L/s' : (out==='gpm' ? 'gpm' : 'L/min');
+  }
+  function currentPressLabel(){ return $('#o_pu').value; }
+  function currentDiamLabel(){  return $('#o_du').value; }
+
+  function updateReqLabel(){
+    const u = currentFlowLabel();
+    $('#o_req_label').textContent = `Enter required flow to calculate pass or fail (Optional) — in ${u}`;
+    $('#o_req').placeholder = `e.g. ${u==='L/s' ? '4.2' : (u==='gpm' ? '66' : '250')} ${u}`;
+  }
+
+  function updateDiameterHint(){
+    const unit = $('#o_du').value;
+    const val  = Number($('#o_d').value)||0;
+    const hint = $('#o_d_hint');
+    if(!val && val !== 0){ hint.style.display='none'; return; }
+    if(unit === 'inch'){
+      const mm = val * MM_PER_INCH;
+      hint.textContent = `≈ ${fmt(mm,2)} mm`;
+    } else {
+      const inch = val / MM_PER_INCH;
+      hint.textContent = `≈ ${fmt(inch,3)} inch`;
+    }
+    hint.style.display='block';
+  }
+
+  function setVisibleResult(outUnit){
+    // hide all, show just the selected
+    ['Lmin','Ls','gpm'].forEach(u=>{
+      const el = document.querySelector(`[data-unit="${u}"]`);
+      if(!el) return;
+      el.classList.toggle('hidden', u !== outUnit);
+    });
+  }
+
+  // Display constant C for labels
+  function computeDisplayC(){
+    const out = $('#o_out').value;   // Lmin | Ls | gpm
+    const du  = $('#o_du').value;    // mm | inch
+    const pu  = $('#o_pu').value;    // kPa | psi
+    let C = C_BASE[out];             // base assumes mm and kPa
+    if(du === 'inch') C *= (MM_PER_INCH**2); // per inch²
+    if(pu === 'psi')  C *= SQRT_KPA_PER_PSI; // √psi
+    return C;
+  }
+
+  function updateFormula(){
+    const qU = currentFlowLabel();   // L/min, L/s, or gpm
+    const pU = currentPressLabel();  // kPa or psi
+    const dU = currentDiamLabel();   // mm or inch
+    const C  = computeDisplayC();
+    const html = `Formula: Q<sub>${qU}</sub> = Cd × C × d<sup>2</sup> × √P<sub>${pU}</sub> &nbsp;
+      (C = ${fmt(C, (C>=100?3:6))} ${qU} per (${dU}<sup>2</sup> · √${pU}))`;
+    $('#o_formula').innerHTML = html;
+  }
+
+  function calcOrifice(){
+    const dVal  = Number($('#o_d').value)||0;
+    const dUnit = $('#o_du').value;
+    const dmm   = dUnit === 'inch' ? dVal * MM_PER_INCH : dVal;
+
+    const pu  = $('#o_pu').value;
+    const Praw = Number($('#o_p').value)||0;
+    const Pk  = toKPa(Praw, pu);
+    const Cd  = Number($('#o_cd').value)||0;
+    const out = $('#o_out').value;
+    const req = Number($('#o_req').value);
+
+    // Core calc (expects d in mm, P in kPa)
+    const C_ls = C_BASE.Ls;
+    const q_ls = Cd * C_ls * dmm*dmm * Math.sqrt(Math.max(Pk,0));
+    const q_lm = q_ls * 60;
+    const q_gpm = q_lm / 3.785411784;
+
+    // Update result text (all three internally)
+    $('#o_main_lmin').textContent = `${fmt(q_lm,2)} L/min`;
+    $('#o_main_ls').textContent   = `${fmt(q_ls,3)} L/s`;
+    $('#o_main_gpm').textContent  = `${fmt(q_gpm,2)} gpm`;
+
+    // Show only selected unit
+    setVisibleResult(out);
+
+    // Pass/Fail strictly in selected Flow units
+    let selectedValue = (out==='Ls') ? q_ls : (out==='gpm' ? q_gpm : q_lm);
+
+    let passText = '—';
+    if(Number.isFinite(req)){
+      const pass = selectedValue + 1e-9 >= req;
+      const el = $('#o_pf');
+      el.textContent = pass ? 'PASS' : 'FAIL';
+      el.className = 'pill ' + (pass ? 'ok' : 'fail');
+      passText = pass ? 'PASS' : 'FAIL';
+    } else {
+      const el = $('#o_pf'); el.textContent = '—'; el.className='pill';
+    }
+
+    updateReqLabel();
+    updateDiameterHint();
+    updateFormula();
+
+    // save snapshot for copying
+    lastCalc = {
+      dVal, dUnit, Cd, Praw, pu,
+      q_lm, q_ls, q_gpm,
+      out, req, selectedValue, passText
+    };
+  }
+
+  ['#o_d','#o_du','#o_p','#o_pu','#o_cd','#o_out','#o_req'].forEach(id=>{
+    $(id).addEventListener('input', calcOrifice);
+    $(id).addEventListener('change', calcOrifice);
+  });
+
+  // initial render
+  calcOrifice();
+
+  // Tooltip logic (Cd)
+  const cdInfo = $('#cdInfo');
+  const tooltip = $('#tooltipCd');
+  cdInfo.addEventListener('click', ()=>{
+    const rect = cdInfo.getBoundingClientRect();
+    tooltip.style.left = rect.left + window.scrollX + 'px';
+    tooltip.style.top = rect.bottom + window.scrollY + 6 + 'px';
+    tooltip.style.display = tooltip.style.display === 'block' ? 'none' : 'block';
+  });
+  document.addEventListener('click', e=>{
+    if(!tooltip.contains(e.target) && e.target !== cdInfo){
+      tooltip.style.display='none';
+    }
+  });
+
+  // ---- Copy helpers (selected unit only) ----
+  const copyBtn = $('#copyBtn');
+  const copyDetailBtn = $('#copyDetailBtn');
+  const copyHint = $('#copyHint');
+
+  const unitLabelFlow = out => out==='Ls'?'L/s':(out==='gpm'?'gpm':'L/min');
+
+  function buildSummary(){
+    if(!lastCalc) return '';
+    const diam = Number.isFinite(lastCalc.dVal) ? fmt(lastCalc.dVal, 2) : '—';
+    const diamUnit = lastCalc.dUnit === 'inch' ? 'inch' : 'mm';
+    const cdTxt = Number.isFinite(lastCalc.Cd) ? fmt(lastCalc.Cd,2) : '—';
+    const pTxt  = Number.isFinite(lastCalc.Praw) ? fmt(lastCalc.Praw,2) : '—';
+    const pUnit = lastCalc.pu; // kPa | psi
+    const outLbl = unitLabelFlow(lastCalc.out);
+    const resTxt = Number.isFinite(lastCalc.selectedValue) ? fmt(lastCalc.selectedValue, (lastCalc.out==='Ls'?3:2)) + ' ' + outLbl : '—';
+    const reqTxt = Number.isFinite(lastCalc.req) ? `${fmt(lastCalc.req, (lastCalc.out==='Ls'?3:2))} ${outLbl}` : '—';
+    const pfTxt  = lastCalc.passText || '—';
+    return `${diam} ${diamUnit} orifice, Discharge Coefficient ${cdTxt}, ${pTxt} ${pUnit} → ${resTxt}. ` +
+           `Required flow: ${reqTxt} → ${pfTxt}`;
+  }
+
+  function buildDetailed(){
+    if(!lastCalc) return '';
+    const dU = currentDiamLabel();
+    const pU = currentPressLabel();
+    const qU = currentFlowLabel();
+    const C  = computeDisplayC();
+    const Ctxt = `${fmt(C, (C>=100?3:6))} ${qU} per (${dU}^2 · √${pU})`;
+    const outLbl = unitLabelFlow(lastCalc.out);
+    const selVal = fmt(lastCalc.selectedValue, lastCalc.out==='Ls'?3:2);
+
+    const lines = [
+      `Orifice: ${fmt(lastCalc.dVal,2)} ${lastCalc.dUnit==='inch'?'inch':'mm'}`,
+      `Cd: ${fmt(lastCalc.Cd,2)}`,
+      `Pressure: ${fmt(lastCalc.Praw,2)} ${lastCalc.pu}`,
+      `Result (${outLbl}): ${selVal} ${outLbl}`,
+      `Required: ${Number.isFinite(lastCalc.req)? fmt(lastCalc.req, lastCalc.out==='Ls'?3:2)+' '+outLbl : '—'}`,
+      `PASS/FAIL: ${lastCalc.passText || '—'}`,
+      `Formula: Q_${qU} = Cd × C × d^2 × √P_${pU}  (C = ${Ctxt})`
+    ];
+    return lines.join('\n');
+  }
+
+  async function copyText(txt, okMsg='Copied'){
+    try{
+      await navigator.clipboard.writeText(txt);
+      copyHint.textContent = okMsg;
+      setTimeout(()=>copyHint.textContent='', 1500);
+    }catch{
+      copyHint.textContent = 'Copy failed';
+      setTimeout(()=>copyHint.textContent='', 1500);
+    }
+  }
+
+  copyBtn.addEventListener('click', ()=> copyText(buildSummary(), 'Copied summary'));
+  copyDetailBtn.addEventListener('click', ()=> copyText(buildDetailed(), 'Copied detailed results'));
+
+  // --- PWA manifest + service worker ---
+  const manifest = { name:"Orifice Flow Calculator", short_name:"OrificeFlow", start_url:".", display:"standalone",
+    background_color:"#0b0f14", theme_color:"#0b0f14",
+    icons:[{src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' fill='%230b0f14'/%3E%3Ccircle cx='64' cy='64' r='46' fill='%234cc2ff'/%3E%3Cpath d='M64 28v72M28 64h72' stroke='%230b0f14' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E", sizes:"128x128", type:"image/svg+xml"}]
+  };
+  const manifestBlob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+  const manifestURL = URL.createObjectURL(manifestBlob);
+  document.getElementById('manifestLink').setAttribute('href', manifestURL);
+
+  if('serviceWorker' in navigator){
+    const swCode=`const CACHE='orifice-flow-v1';
+    self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.add(new Request(self.location.href,{cache:'reload'}))));self.skipWaiting()});
+    self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim())});
+    self.addEventListener('fetch',e=>{
+      e.respondWith(caches.match(e.request,{ignoreSearch:true}).then(r=>r||fetch(e.request).then(resp=>{
+        const copy=resp.clone(); caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{}); return resp;
+      }).catch(()=>caches.match(new Request(self.location.href)))));
+    });`;
+    const swBlob=new Blob([swCode],{type:'text/javascript'});
+    const swURL=URL.createObjectURL(swBlob);
+    navigator.serviceWorker.register(swURL).catch(console.error);
+  }
+</script>
+</body>
+</html>
