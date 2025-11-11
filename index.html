@@ -103,8 +103,8 @@
         </div>
         <input id="o_cd" type="number" inputmode="decimal" value="0.62" min="0" max="2" step="0.01">
 
-        <!-- Pressure value ABOVE pressure units -->
-        <label style="margin-top:10px">Pressure value (residual pressure)</label>
+        <!-- Achieved pressure value ABOVE pressure units -->
+        <label style="margin-top:10px">Achieved pressure (residual)</label>
         <input id="o_p" type="number" inputmode="decimal" value="100" min="0" step="0.1">
 
         <label style="margin-top:10px">Pressure units</label>
@@ -121,10 +121,13 @@
           <option value="gpm">gpm</option>
         </select>
 
-        <!-- Required flow -->
+        <!-- Requireds -->
         <div class="hr"></div>
         <label id="o_req_label">Enter required flow to calculate pass or fail (Optional) — in L/min</label>
         <input id="o_req" type="number" inputmode="decimal" placeholder="e.g. 250 L/min">
+
+        <label id="o_reqp_label" style="margin-top:8px;">Required pressure (Optional) — in kPa</label>
+        <input id="o_reqp" type="number" inputmode="decimal" placeholder="e.g. 300 kPa">
 
         <!-- Results (only selected unit is shown) -->
         <div class="hr"></div>
@@ -132,6 +135,7 @@
         <div class="result" id="o_main_lmin" data-unit="Lmin">—</div>
         <div class="result" id="o_main_ls"   data-unit="Ls">—</div>
         <div class="result" id="o_main_gpm"  data-unit="gpm">—</div>
+        <div class="sub" id="o_press_line">—</div>
 
         <div style="margin-top:8px"><span class="pill" id="o_pf">—</span></div>
 
@@ -173,6 +177,7 @@
     if(unit==='psi') return val*6.894757;
     return val;
   }
+  const kPaToPsi = kpa => kpa / 6.894757;
 
   function currentFlowLabel(){
     const out = $('#o_out').value;
@@ -181,12 +186,17 @@
   function currentPressLabel(){ return $('#o_pu').value; }
   function currentDiamLabel(){  return $('#o_du').value; }
 
-  function updateReqLabel(){
-    const u = currentFlowLabel();
-    $('#o_req_label').textContent = `Enter required flow to calculate pass or fail (Optional) — in ${u}`;
-    $('#o_req').placeholder = `e.g. ${u==='L/s' ? '4.2' : (u==='gpm' ? '66' : '250')} ${u}`;
+  function updateReqLabels(){
+    const qU = currentFlowLabel();
+    $('#o_req_label').textContent = `Enter required flow to calculate pass or fail (Optional) — in ${qU}`;
+    $('#o_req').placeholder = `e.g. ${qU==='L/s' ? '4.2' : (qU==='gpm' ? '66' : '250')} ${qU}`;
+
+    const pU = currentPressLabel();
+    $('#o_reqp_label').textContent = `Required pressure (Optional) — in ${pU}`;
+    $('#o_reqp').placeholder = `e.g. ${pU==='psi' ? '50' : '300'} ${pU}`;
   }
 
+  // Bi-directional diameter hint
   function updateDiameterHint(){
     const unit = $('#o_du').value;
     const val  = Number($('#o_d').value)||0;
@@ -203,7 +213,6 @@
   }
 
   function setVisibleResult(outUnit){
-    // hide all, show just the selected
     ['Lmin','Ls','gpm'].forEach(u=>{
       const el = document.querySelector(`[data-unit="${u}"]`);
       if(!el) return;
@@ -227,26 +236,31 @@
     const pU = currentPressLabel();  // kPa or psi
     const dU = currentDiamLabel();   // mm or inch
     const C  = computeDisplayC();
+
     const html = `Formula: Q<sub>${qU}</sub> = Cd × C × d<sup>2</sup> × √P<sub>${pU}</sub> &nbsp;
       (C = ${fmt(C, (C>=100?3:6))} ${qU} per (${dU}<sup>2</sup> · √${pU}))`;
     $('#o_formula').innerHTML = html;
   }
 
   function calcOrifice(){
+    // Inputs
     const dVal  = Number($('#o_d').value)||0;
     const dUnit = $('#o_du').value;
     const dmm   = dUnit === 'inch' ? dVal * MM_PER_INCH : dVal;
 
-    const pu  = $('#o_pu').value;
-    const Praw = Number($('#o_p').value)||0;
-    const Pk  = toKPa(Praw, pu);
-    const Cd  = Number($('#o_cd').value)||0;
-    const out = $('#o_out').value;
-    const req = Number($('#o_req').value);
+    const pUnit  = $('#o_pu').value;
+    const Praw   = Number($('#o_p').value)||0;         // achieved, in pUnit
+    const PkPa   = toKPa(Praw, pUnit);
+    const Ppsi   = kPaToPsi(PkPa);
+
+    const Cd     = Number($('#o_cd').value)||0;
+    const out    = $('#o_out').value;
+    const req    = Number($('#o_req').value);
+    const reqp   = Number($('#o_reqp').value);         // in pUnit
 
     // Core calc (expects d in mm, P in kPa)
-    const C_ls = C_BASE.Ls;
-    const q_ls = Cd * C_ls * dmm*dmm * Math.sqrt(Math.max(Pk,0));
+    const C_ls = C_BASE.Ls; // 0.00111072
+    const q_ls = Cd * C_ls * dmm*dmm * Math.sqrt(Math.max(PkPa,0));
     const q_lm = q_ls * 60;
     const q_gpm = q_lm / 3.785411784;
 
@@ -255,36 +269,42 @@
     $('#o_main_ls').textContent   = `${fmt(q_ls,3)} L/s`;
     $('#o_main_gpm').textContent  = `${fmt(q_gpm,2)} gpm`;
 
+    // Achieved pressure line with both units
+    const pressLine = `Achieved pressure (residual): ${fmt(Praw,2)} ${pUnit} (≈ ${fmt(PkPa,2)} kPa • ${fmt(Ppsi,2)} psi)`;
+    $('#o_press_line').textContent = pressLine;
+
     // Show only selected unit
     setVisibleResult(out);
 
-    // Pass/Fail strictly in selected Flow units
-    let selectedValue = (out==='Ls') ? q_ls : (out==='gpm' ? q_gpm : q_lm);
+    // Selected flow value
+    const selectedValue = (out==='Ls') ? q_ls : (out==='gpm' ? q_gpm : q_lm);
 
-    let passText = '—';
-    if(Number.isFinite(req)){
-      const pass = selectedValue + 1e-9 >= req;
+    // PASS/FAIL requires BOTH required flow and required pressure present
+    const hasReqFlow = Number.isFinite(req);
+    const hasReqPress= Number.isFinite(reqp);
+    if (hasReqFlow && hasReqPress) {
+      const pass = (selectedValue + 1e-9 >= req) && (Praw + 1e-9 >= reqp);
       const el = $('#o_pf');
       el.textContent = pass ? 'PASS' : 'FAIL';
       el.className = 'pill ' + (pass ? 'ok' : 'fail');
-      passText = pass ? 'PASS' : 'FAIL';
     } else {
       const el = $('#o_pf'); el.textContent = '—'; el.className='pill';
     }
 
-    updateReqLabel();
+    updateReqLabels();
     updateDiameterHint();
     updateFormula();
 
     // save snapshot for copying
     lastCalc = {
-      dVal, dUnit, Cd, Praw, pu,
+      dVal, dUnit, Cd,
+      Praw, pUnit, PkPa, Ppsi,
       q_lm, q_ls, q_gpm,
-      out, req, selectedValue, passText
+      out, req, reqp, selectedValue
     };
   }
 
-  ['#o_d','#o_du','#o_p','#o_pu','#o_cd','#o_out','#o_req'].forEach(id=>{
+  ['#o_d','#o_du','#o_p','#o_pu','#o_cd','#o_out','#o_req','#o_reqp'].forEach(id=>{
     $(id).addEventListener('input', calcOrifice);
     $(id).addEventListener('change', calcOrifice);
   });
@@ -320,13 +340,20 @@
     const diamUnit = lastCalc.dUnit === 'inch' ? 'inch' : 'mm';
     const cdTxt = Number.isFinite(lastCalc.Cd) ? fmt(lastCalc.Cd,2) : '—';
     const pTxt  = Number.isFinite(lastCalc.Praw) ? fmt(lastCalc.Praw,2) : '—';
-    const pUnit = lastCalc.pu; // kPa | psi
+    const pUnit = lastCalc.pUnit;
     const outLbl = unitLabelFlow(lastCalc.out);
     const resTxt = Number.isFinite(lastCalc.selectedValue) ? fmt(lastCalc.selectedValue, (lastCalc.out==='Ls'?3:2)) + ' ' + outLbl : '—';
     const reqTxt = Number.isFinite(lastCalc.req) ? `${fmt(lastCalc.req, (lastCalc.out==='Ls'?3:2))} ${outLbl}` : '—';
-    const pfTxt  = lastCalc.passText || '—';
-    return `${diam} ${diamUnit} orifice, Discharge Coefficient ${cdTxt}, ${pTxt} ${pUnit} → ${resTxt}. ` +
-           `Required flow: ${reqTxt} → ${pfTxt}`;
+    const reqPTxt = Number.isFinite(lastCalc.reqp) ? `${fmt(lastCalc.reqp,2)} ${pUnit}` : '—';
+
+    // PASS/FAIL indicator shown in UI; keep summary neutral if not both entered
+    const bothHave = Number.isFinite(lastCalc.req) && Number.isFinite(lastCalc.reqp);
+    const passText = bothHave
+      ? ((lastCalc.selectedValue + 1e-9 >= lastCalc.req) && (lastCalc.Praw + 1e-9 >= lastCalc.reqp) ? 'PASS' : 'FAIL')
+      : '—';
+
+    return `${diam} ${diamUnit} orifice, Discharge Coefficient ${cdTxt}, Achieved pressure (residual) ${pTxt} ${pUnit} → ${resTxt}. ` +
+           `Required: ${reqTxt} & ${reqPTxt} → ${passText}`;
   }
 
   function buildDetailed(){
@@ -338,14 +365,21 @@
     const Ctxt = `${fmt(C, (C>=100?3:6))} ${qU} per (${dU}^2 · √${pU})`;
     const outLbl = unitLabelFlow(lastCalc.out);
     const selVal = fmt(lastCalc.selectedValue, lastCalc.out==='Ls'?3:2);
+    const reqFlowTxt = Number.isFinite(lastCalc.req)  ? `${fmt(lastCalc.req, lastCalc.out==='Ls'?3:2)} ${outLbl}` : '—';
+    const reqPressTxt= Number.isFinite(lastCalc.reqp) ? `${fmt(lastCalc.reqp,2)} ${lastCalc.pUnit}` : '—';
+    const bothHave = Number.isFinite(lastCalc.req) && Number.isFinite(lastCalc.reqp);
+    const pfTxt = bothHave
+      ? ((lastCalc.selectedValue + 1e-9 >= lastCalc.req) && (lastCalc.Praw + 1e-9 >= lastCalc.reqp) ? 'PASS' : 'FAIL')
+      : '—';
 
     const lines = [
       `Orifice: ${fmt(lastCalc.dVal,2)} ${lastCalc.dUnit==='inch'?'inch':'mm'}`,
       `Cd: ${fmt(lastCalc.Cd,2)}`,
-      `Pressure: ${fmt(lastCalc.Praw,2)} ${lastCalc.pu}`,
+      `Achieved pressure (residual): ${fmt(lastCalc.Praw,2)} ${lastCalc.pUnit}  (≈ ${fmt(lastCalc.PkPa,2)} kPa • ${fmt(lastCalc.Ppsi,2)} psi)`,
       `Result (${outLbl}): ${selVal} ${outLbl}`,
-      `Required: ${Number.isFinite(lastCalc.req)? fmt(lastCalc.req, lastCalc.out==='Ls'?3:2)+' '+outLbl : '—'}`,
-      `PASS/FAIL: ${lastCalc.passText || '—'}`,
+      `Required total flow: ${reqFlowTxt}`,
+      `Required pressure: ${reqPressTxt}`,
+      `PASS/FAIL (both must be met): ${pfTxt}`,
       `Formula: Q_${qU} = Cd × C × d^2 × √P_${pU}  (C = ${Ctxt})`
     ];
     return lines.join('\n');
@@ -375,7 +409,7 @@
   document.getElementById('manifestLink').setAttribute('href', manifestURL);
 
   if('serviceWorker' in navigator){
-    const swCode=`const CACHE='orifice-flow-v1';
+    const swCode=`const CACHE='orifice-flow-v2';
     self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.add(new Request(self.location.href,{cache:'reload'}))));self.skipWaiting()});
     self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim())});
     self.addEventListener('fetch',e=>{
